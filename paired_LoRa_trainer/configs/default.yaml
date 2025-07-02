@@ -1,0 +1,171 @@
+# configs/default.yaml - 茶歇领替换默认配置
+# 针对茶歇领替换任务优化的FLUX训练配置
+
+# 模型配置
+model:
+  model_name: "./models/FLUX.1-fill-dev"
+  model_revision: null
+  cache_dir: "./cache"
+  
+  # LoRA配置 - 针对茶歇领替换优化
+  lora_rank: 32                    # 适中的rank，平衡质量和训练速度
+  lora_alpha: 16                   # 相对较小的alpha，避免过拟合
+  lora_dropout: 0.1
+  lora_target_modules:
+    - "to_k"                       # 注意力机制的key
+    - "to_q"                       # 注意力机制的query  
+    - "to_v"                       # 注意力机制的value
+    - "to_out.0"                   # 注意力输出
+    - "ff.net.0.proj"             # 前馈网络
+    - "ff.net.2"                  # 前馈网络输出
+  
+  # 优化设置
+  use_8bit: true                   # 启用8bit优化节省显存
+  use_gradient_checkpointing: true # 启用梯度检查点
+  torch_dtype: "bfloat16"         # 使用bfloat16精度
+  compile_model: false            # 是否使用torch.compile (Python 3.12+)
+
+# 训练配置
+training:
+  # 基础训练参数
+  learning_rate: 5.0e-5           # 茶歇领替换推荐学习率
+  batch_size: 2                   # 适合12GB显存
+  gradient_accumulation_steps: 4   # 有效批次大小 = 2 * 4 = 8
+  max_steps: 3000                 # 茶歇领替换推荐训练步数
+  warmup_steps: 300               # 预热步数 (10% of max_steps)
+  
+  # 优化器配置
+  optimizer: "adamw_8bit"         # 8bit AdamW优化器
+  weight_decay: 0.01
+  beta1: 0.9
+  beta2: 0.999
+  epsilon: 1.0e-8
+  max_grad_norm: 1.0              # 梯度裁剪
+  
+  # 学习率调度
+  lr_scheduler: "cosine_with_restarts"
+  lr_num_cycles: 1
+  
+  # 保存和验证
+  save_steps: 500                 # 每500步保存一次
+  logging_steps: 50               # 每50步记录一次
+  eval_steps: 250                 # 每250步验证一次
+  save_total_limit: 5             # 最多保存5个检查点
+  
+  # 混合精度
+  mixed_precision: "bf16"         # 使用bfloat16混合精度
+  
+  # 茶歇领替换特定损失权重
+  masked_loss_weight: 2.0         # 蒙版区域(领子)权重
+  unmasked_loss_weight: 0.1       # 非蒙版区域权重
+  
+  # 噪声调度
+  noise_offset: 0.0
+  snr_gamma: 5.0                  # Signal-to-Noise Ratio gamma
+  
+  # 数据增强
+  enable_augmentation: true
+  
+  # 随机种子
+  seed: 42
+
+# 数据配置
+data:
+  # 数据路径
+  train_data_dir: "./data/train"
+  validation_data_dir: "./data/val"
+  mask_data_dir: "./data/masks"
+  
+  # 图像配置
+  resolution: 1024                # FLUX推荐分辨率
+  center_crop: false             # 不使用中心裁剪，保持完整图像
+  random_flip: true              # 随机水平翻转
+  
+  # 数据加载
+  num_workers: 4
+  pin_memory: true
+  
+  # 提示词配置
+  caption_column: "caption"
+  max_caption_length: 77         # CLIP标准长度
+  
+  # 茶歇领相关关键词 (用于数据验证)
+  collar_keywords:
+    - "collar"
+    - "neckline" 
+    - "off-shoulder"
+    - "tea break"
+    - "off shoulder"
+    - "bardot"
+    - "boat neck"
+    - "scoop neck"
+    - "one shoulder"
+  
+  # 蒙版配置
+  mask_threshold: 0.5            # 蒙版二值化阈值
+  mask_blur_radius: 1            # 蒙版边缘模糊半径
+  
+  # 数据增强配置
+  augmentation_prob: 0.5         # 数据增强概率
+  color_jitter_prob: 0.3         # 颜色抖动概率
+  
+  # 颜色增强参数 (保守设置，避免改变服装颜色)
+  brightness_range: 0.1          # 亮度变化范围
+  contrast_range: 0.1            # 对比度变化范围
+  saturation_range: 0.05         # 饱和度变化范围 (较小，保持服装颜色)
+  hue_range: 0.02                # 色相变化范围 (很小，避免颜色失真)
+
+# 推理配置
+inference:
+  num_inference_steps: 28        # FLUX推荐推理步数
+  guidance_scale: 3.5            # 引导强度
+  strength: 0.8                  # 变换强度
+  width: 1024
+  height: 1024
+
+# 日志和监控
+logging:
+  log_level: "INFO"
+  use_wandb: false               # 是否使用Weights & Biases
+  wandb_project: "flux-collar-replacement"
+  wandb_run_name: null
+  
+  # TensorBoard配置
+  tensorboard_log_dir: "logs"
+  
+  # 样本生成配置
+  generate_samples_steps: 250    # 每250步生成样本
+  num_validation_samples: 3      # 验证样本数量
+
+# 硬件优化
+hardware:
+  # 显存优化
+  enable_cpu_offload: false      # 是否启用CPU卸载
+  enable_sequential_cpu_offload: false
+  enable_model_cpu_offload: false
+  
+  # 注意力优化
+  enable_flash_attention: false  # Flash Attention (可能不兼容所有GPU)
+  enable_xformers: false         # xFormers优化
+  
+  # 内存优化
+  low_vram_mode: false           # 低显存模式
+  attention_slicing: false       # 注意力切片
+
+# 高级配置
+advanced:
+  # 实验性功能
+  use_ema: false                 # 指数移动平均
+  ema_decay: 0.9999
+  
+  # 损失函数配置
+  loss_type: "mse"              # 均方误差损失
+  
+  # 调试选项
+  debug_mode: false
+  profile_training: false
+  
+  # 检查点配置
+  resume_from_checkpoint: null   # 恢复训练的检查点路径
+  save_optimizer_state: true    # 保存优化器状态
+  save_lr_scheduler_state: true # 保存学习率调度器状态
